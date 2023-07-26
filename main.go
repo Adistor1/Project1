@@ -1,91 +1,49 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
 
-	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
-	"github.com/tidwall/gjson"
+	"github.com/labstack/echo"
+	"github.com/parnurzeal/gorequest"
 )
-
-const (
-	bannerbearAPIKey   = "YOUR_BANNERBEAR_API_KEY"
-	bannerbearTemplate = "YOUR_BANNERBEAR_TEMPLATE_ID"
-)
-
-type BannerbearRequest struct {
-	Text string `json:"text"`
-}
-
-type BannerbearResponse struct {
-	ImageURL string `json:"image_url"`
-}
-
-func generateBannerbearImage(text string) (string, error) {
-	client := &http.Client{}
-	url := fmt.Sprintf("https://api.bannerbear.com/v2/images/%s/rendered", bannerbearTemplate)
-	payload := BannerbearRequest{
-		Text: text,
-	}
-	payloadBytes, err := json.Marshal(payload)
-	if err != nil {
-		return "", err
-	}
-
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(payloadBytes))
-	if err != nil {
-		return "", err
-	}
-
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", bannerbearAPIKey))
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Bannerbear API request failed with status: %s", resp.Status)
-	}
-
-	body, err := ioutil.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	imageURL := gjson.GetBytes(body, "image_url").String()
-	return imageURL, nil
-}
-
-func handleGenerateImage(c echo.Context) error {
-	req := new(BannerbearRequest)
-	if err := c.Bind(req); err != nil {
-		return c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid request"})
-	}
-
-	imageURL, err := generateBannerbearImage(req.Text)
-	if err != nil {
-		return c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-	}
-
-	response := BannerbearResponse{
-		ImageURL: imageURL,
-	}
-	return c.JSON(http.StatusOK, response)
-}
 
 func main() {
 	e := echo.New()
-	e.Use(middleware.Logger())
-	e.Use(middleware.Recover())
 
-	e.POST("/generate", handleGenerateImage)
+	e.POST("/generate-image", generateImageHandler)
 
-	e.Logger.Fatal(e.Start(":8080"))
+	e.Start(":8080")
+}
+
+func generateImageHandler(c echo.Context) error {
+
+	bannerbearAPIKey := "bb_pr_b4b7558b8d41f21b6199c56a3e7bf2"
+
+	input := struct {
+		Text string `json:"text"`
+	}{}
+	if err := c.Bind(&input); err != nil {
+		return c.JSON(http.StatusBadRequest, "Invalid input format")
+	}
+
+	templateID := "kY4Qv7D8VJjjZB0qmP"
+
+	parameters := map[string]interface{}{
+		"text": input.Text,
+	}
+
+	url := fmt.Sprintf("https://api.bannerbear.com/v2/images/%s", templateID)
+	request := gorequest.New()
+	_, body, errs := request.
+		Post(url).
+		Set("Authorization", fmt.Sprintf("Bearer %s", bannerbearAPIKey)).
+		Send(parameters).
+		End()
+
+	if len(errs) > 0 {
+		return c.JSON(http.StatusInternalServerError, "Error generating image")
+	}
+
+	return c.Blob(http.StatusOK, "image/png", []byte(body))
 }
